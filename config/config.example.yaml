@@ -1,0 +1,53 @@
+# FinSec IOC Monitor Configuration
+
+database:
+  path: "iocs.db"
+
+# IOC Feed Sources
+feeds:
+  feodo:
+    enabled: true
+    recommended_only: true  # Use recommended blocklist (fewer false positives)
+
+  threatfox:
+    enabled: true
+    days_back: 1  # Fetch IOCs from last N days
+
+  urlhaus:
+    enabled: true
+    limit: 100  # Number of recent URLs to fetch
+
+  # Future feeds (not yet implemented)
+  # otx:
+  #   enabled: false
+  #   api_key: "YOUR_OTX_API_KEY"
+  #   pulse_tags: ["banking", "financial", "ransomware", "apt"]
+  #
+  # abuseipdb:
+  #   enabled: false
+  #   api_key: "YOUR_ABUSEIPDB_KEY"
+  #   min_confidence: 80
+
+# Your infrastructure — IOCs matching these trigger alerts
+watchlist:
+  ips:
+    # Add your external IP ranges
+    # - "203.0.113.0/24"
+    # - "198.51.100.0/24"
+    []
+  domains:
+    # Add your domains
+    # - "example-bank.com"
+    # - "*.example-bank.com"
+    []
+
+# Alert configuration
+alerting:
+  telegram:
+    enabled: false
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+
+# Monitoring schedule
+schedule:
+  interval_minutes: 30
