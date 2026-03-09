@@ -6,6 +6,8 @@ Shares IOCs (IPs, domains, URLs, hashes) associated with malware.
 Free API, no key required for basic queries.
 """
 
+import csv
+import io
 import requests
 from datetime import datetime, timedelta
 from typing import List
@@ -53,36 +55,61 @@ class ThreatFoxFeed(BaseFeed):
             )
             response.raise_for_status()
             data = response.json()
-            if data.get("query_status") == "ok":
+            if data.get("query_status") == "ok" and data.get("data"):
                 return data
-            raise ValueError("API returned non-ok status")
+            raise ValueError("API returned no data, falling back to CSV")
         except Exception:
             # Fallback to CSV export
             response = requests.get(self.CSV_URL, timeout=30)
             response.raise_for_status()
             entries = []
+            # CSV header: first_seen_utc, ioc_id, ioc_value, ioc_type,
+            #   threat_type, fk_malware, malware_alias(variable commas!),
+            #   malware_printable, last_seen_utc, confidence_level,
+            #   is_compromised, reference, tags, anonymous, reporter
+            # Note: malware_alias and tags can contain commas without
+            # proper quoting, so we parse from known positions at start/end.
             for line in response.text.split('\n'):
                 line = line.strip()
-                if line.startswith('#') or not line:
+                if not line or line.startswith('#'):
                     continue
-                parts = [p.strip('"').strip() for p in line.split('","')]
-                # CSV columns: first_seen_utc, ioc_id, ioc_type, ioc, threat_type,
-                #              fk_malware, malware_alias, malware_printable,
-                #              last_seen_utc, confidence_level, reference, tags, anonymous
-                if len(parts) >= 10:
-                    confidence_str = parts[9] if len(parts) > 9 else "50"
-                    entries.append({
-                        "ioc": parts[3],
-                        "ioc_type": parts[2],
-                        "threat_type": parts[4],
-                        "malware": parts[5],
-                        "malware_printable": parts[7] if len(parts) > 7 else parts[5],
-                        "confidence_level": int(confidence_str) if confidence_str.isdigit() else 50,
-                        "first_seen_utc": parts[0],
-                        "last_seen_utc": parts[8] if len(parts) > 8 else None,
-                        "reference": parts[10] if len(parts) > 10 else "",
-                        "tags": parts[11].split(",") if len(parts) > 11 and parts[11] else [],
-                    })
+                parts = [p.strip().strip('"') for p in line.split('", "')]
+                # First field might have leading quote
+                if parts:
+                    parts[0] = parts[0].lstrip('"').strip()
+                if len(parts) < 10:
+                    continue
+
+                # Fixed positions from start: 0-4
+                first_seen = parts[0]
+                ioc_value = parts[2]
+                ioc_type = parts[3]
+                threat_type = parts[4]
+                malware = parts[5]
+
+                # Fixed positions from end: reporter(-1), anonymous(-2),
+                # tags(-3?), reference, is_compromised, confidence,
+                # last_seen, malware_printable
+                # Use last 7 fields from end for reliability
+                end = parts[-7:]  # [..., last_seen, confidence, is_compromised, reference, tags, anonymous, reporter]
+                # But variable alias length makes this tricky.
+                # Safest: confidence is always a number, find it
+                confidence = 50
+                for p in parts[6:]:
+                    if p.isdigit() and 0 <= int(p) <= 100:
+                        confidence = int(p)
+                        break
+
+                entries.append({
+                    "ioc": ioc_value,
+                    "ioc_type": ioc_type,
+                    "threat_type": threat_type,
+                    "malware": malware,
+                    "malware_printable": malware,
+                    "confidence_level": confidence,
+                    "first_seen_utc": first_seen,
+                    "tags": [],
+                })
             return {"query_status": "ok", "data": entries}
 
     def parse(self, raw_data: dict) -> List[IOC]:
